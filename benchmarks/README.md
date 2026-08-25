@@ -14,13 +14,13 @@
 | 11.87K tokens | 8.16 s | 1,455.2 tok/s | 80.5 tok/s |
 | 29.57K tokens | 22.56 s | 1,310.8 tok/s | 75.1 tok/s |
 
-TTFT 是从请求发出到收到第一个 content 或 reasoning token 的时间；Decode 是第一个 token 后按 128 completion tokens 计算的速率。
+TTFT / 首字时间的严格口径：从 HTTP 请求发出开始，到流式 SSE 第一次收到任一非空 reasoning_content、reasoning 或 content 字符为止。也就是说，模型开始输出 think 内的第一个思考字符就算首字，不等待最终答案正文。
 
-### A/B 结果
+Decode 是从该首个字符到流结束、按 API 返回的 completion_tokens 计算的平均速率。因此 decode 包含 reasoning 与 content 两部分输出。
 
-- P3_kv_cache_4500M：KV 预算改为 4.5G 的候选项。4K/8K/20K decode 平均约 82.3 / 81.3 / 75.9 tok/s。
-- P4_omp_num_threads_12：OMP 线程改为 12 的候选项。4K/8K/20K decode 平均约 83.7 / 82.1 / 77.8 tok/s。
-- 2026-08-21-kv-memory-ab.json：KV Cache 固定 4G 前后的历史 A/B 原始数据。
+### 历史 A/B 记录说明
+
+仓库不再把旧的 P3/P4 或 2026-08-21 A/B 数字放入速度基线，因为它们来自非流式请求脚本，TTFT 是按固定预填充速度反推的估算值，并非首个思考字符实测。它们可以说明配置尝试历史，但不能用于首字或 decode 验收。
 
 ## 启动验收证据
 
@@ -39,8 +39,7 @@ TTFT 是从请求发出到收到第一个 content 或 reasoning token 的时间�
 1. 严格使用 README 固定的 GPU、驱动、vLLM commit、补丁、FlashQLA commit、模板与启动参数。
 2. 测试前确认无其他 GPU 任务；GPU0 接显示器时数值可能轻微波动。
 3. 每档至少串行运行 3 次，使用唯一 prompt，避免 Prefix Cache 把 prefill 成绩虚高。
-4. 测试输出固定为 128 tokens，并记录 prompt_tokens、TTFT、total latency、prefill tok/s、decode tok/s。
+4. 测试输出固定为 128 tokens，并记录 prompt_tokens、TTFT、total latency、prefill tok/s、decode tok/s；TTFT 必须按首个 reasoning/content 字符记录。
 5. 与上表比较时，允许约 ±10% 波动；超过这个范围先检查 flashqla_legacy、TP=2、NVLink=NV2、FP8 KV 和 MTP。
 
 不同模型权重、显示器占用、温度/功耗墙、显卡改装规格、PCIe/NVLink 状态、驱动与 CUDA 小版本都会改变速度。本仓库给出可比的验收区间，不承诺每台机器得到逐位相同数字。
-

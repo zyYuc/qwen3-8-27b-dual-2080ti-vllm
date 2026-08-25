@@ -95,7 +95,7 @@ bash scripts/run_qwen3.8_27b_sm75.sh
 
 ## 跑通后的性能验收
 
-这一步是“AI 能否真的帮你跑到相近速度”的关键，而不是只看到服务能启动。
+这一步是“AI 能否真的帮你跑到相近速度”的关键，而不是只看到服务能启动。这里的首字时间严格按模型流式输出的第一个思考字符或答案字符计算；Qwen 开始输出 think 中第一个字符，就视为首字。
 
 ~~~bash
 python benchmarks/collect_streaming_benchmark.py \

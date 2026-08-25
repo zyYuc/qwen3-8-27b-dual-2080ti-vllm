@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Repeatable streaming benchmark for the launch profile in this repository."""
+"""Streaming first-character benchmark.
+
+TTFT ends at the first non-empty reasoning_content, reasoning, or content
+delta. For Qwen thinking mode, the first streamed thinking character counts
+as first character; this does not wait for the final answer body.
+"""
 import argparse
 import json
 import random
@@ -86,4 +91,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
