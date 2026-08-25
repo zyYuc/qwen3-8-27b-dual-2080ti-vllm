@@ -111,6 +111,8 @@ python benchmarks/collect_streaming_benchmark.py \
 | 2.84K tokens | 2.59 s | 1,099.8 tok/s | 97.3 tok/s |
 | 5.64K tokens | 4.48 s | 1,260.2 tok/s | 94.3 tok/s |
 | 8.45K tokens | 6.45 s | 1,311.2 tok/s | 101.1 tok/s |
+| 19.77K tokens | 14.78 s | 1,337.6 tok/s | 101.3 tok/s |
+| 59.24K tokens | 53.02 s | 1,117.3 tok/s | 84.4 tok/s |
 
 首字的定义：流式 SSE 收到第一个非空 reasoning_content、reasoning 或 content 字符；Qwen 开始输出 think 内的第一个字符即计入首字。DSH 全任务平均首字应使用 DSH 的原始任务集单独复测，不能与本合成上下文梯度混用。
 
