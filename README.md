@@ -104,10 +104,10 @@ python benchmarks/collect_streaming_benchmark.py \
   --output my-benchmark-result.json
 ~~~
 
-测试方法、真实原始结果、A/B 数据和验收范围都在 benchmarks/README.md。最终配置的基线是：
+测试方法、真实流式原始结果和验收范围都在 benchmarks/README.md。下面仅列出 A0 最终配置的真实流式首字基线；旧 A/B 数据不再作为速度验收依据。
 
-| 实际输入约 | 平均 TTFT | 平均 Prefill | 平均 Decode |
-| --- | ---: | ---: | ---: |
+| 实际输入 | 平均首字时间（TTFT） | 平均 Prefill 速度 | 平均 Decode 速度 |
+| :-- | --: | --: | --: |
 | 5.94K tokens | 3.94 s | 1,509.2 tok/s | 81.4 tok/s |
 | 11.87K tokens | 8.16 s | 1,455.2 tok/s | 80.5 tok/s |
 | 29.57K tokens | 22.56 s | 1,310.8 tok/s | 75.1 tok/s |
