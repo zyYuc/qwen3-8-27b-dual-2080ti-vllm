@@ -93,6 +93,27 @@ CHAT_TEMPLATE 默认指向本仓库内的 templates/qwen3.8-froggeric-v22.3.jinj
 bash scripts/run_qwen3.8_27b_sm75.sh
 ~~~
 
+## 跑通后的性能验收
+
+这一步是“AI 能否真的帮你跑到相近速度”的关键，而不是只看到服务能启动。
+
+~~~bash
+python benchmarks/collect_streaming_benchmark.py \
+  --base-url http://127.0.0.1:8000 \
+  --model qwen-local \
+  --output my-benchmark-result.json
+~~~
+
+测试方法、真实原始结果、A/B 数据和验收范围都在 benchmarks/README.md。最终配置的基线是：
+
+| 实际输入约 | 平均 TTFT | 平均 Prefill | 平均 Decode |
+| --- | ---: | ---: | ---: |
+| 5.94K tokens | 3.94 s | 1,509.2 tok/s | 81.4 tok/s |
+| 11.87K tokens | 8.16 s | 1,455.2 tok/s | 80.5 tok/s |
+| 29.57K tokens | 22.56 s | 1,310.8 tok/s | 75.1 tok/s |
+
+复现时应先锁定 docs/environment-lock.md，再按 benchmarks/README.md 的方法测试。相同硬件的合理验收范围是约 ±10%；显著偏离时按顺序检查：NVLink 是否为 NV2、TP 是否为 2、补丁是否生效、FlashQLA legacy 是否被日志选中、是否使用 FP8 KV、是否有其他 GPU 占用。
+
 ## 完整加载参数与用途
 
 | 参数 | 当前值 | 用途 |
@@ -130,7 +151,7 @@ bash scripts/run_qwen3.8_27b_sm75.sh
 | VLLM_USE_V2_MODEL_RUNNER | 1 | 使用 V2 model runner。 |
 | PYTHONPATH | FLASHQLA_PATH | 让 vLLM 能导入 FlashQLA SM75 GDN backend。 |
 
-完整来源、固定 commit、补丁边界和引用见 docs/ACCELERATION_AND_ATTRIBUTION.md。
+完整来源、固定 commit、补丁边界和引用见 docs/ACCELERATION_AND_ATTRIBUTION.md。完整环境锁定清单见 docs/environment-lock.md。
 
 ## systemd 常驻服务
 
@@ -156,4 +177,3 @@ sudo systemctl status qwen3.8-27b-vllm --no-pager
 ## 引用与致谢
 
 感谢并请引用：vLLM、PyTorch、Hugging Face Transformers、FlashInfer、FlashQLA-SM70-SM75、NCCL。详细链接和 commit 在 docs/ACCELERATION_AND_ATTRIBUTION.md。
-

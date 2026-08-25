@@ -7,7 +7,7 @@
 | vLLM | v0.27.1 / 6e448d0ea9bf3d88d898b65449ca6dc2aec170ac | API、TP、KV Cache、MTP、CUDA Graph | https://github.com/vllm-project/vllm |
 | PyTorch | 2.13.0+cu130 | CUDA 运行时与张量计算 | https://github.com/pytorch/pytorch |
 | Transformers | 5.15.1 | 模型与 Tokenizer 配置 | https://github.com/huggingface/transformers |
-| FlashInfer | 0.6.16 | SM75 attention / decode 后端 | https://github.com/flashinfer-ai/flashinfer |
+| FlashInfer | 0.6.16.post3 | SM75 attention / decode 后端 | https://github.com/flashinfer-ai/flashinfer |
 | FlashQLA | 3ab27d77d8ca01d7a4718903b726add1a8886c0e | Qwen GDN/linear-attention 的 SM70/SM75 legacy prefill | https://github.com/weicj/FlashQLA-SM70-SM75 |
 | NCCL | 2.29.7 | 双卡 Tensor Parallel 通信 | https://github.com/NVIDIA/nccl |
 
@@ -26,4 +26,3 @@ templates/qwen3.8-froggeric-v22.3.jinja 是当前实际使用的修复模板源�
 - 用途：Qwen3 消息格式、thinking 开关、XML/JSON 工具调用、多轮 tool response、图像/视频 token 拼装。
 - 启动参数：--chat-template templates/qwen3.8-froggeric-v22.3.jinja --chat-template-content-format string
 - 模型权重、Tokenizer、上游模型许可证仍以模型发布方许可证为准。
-

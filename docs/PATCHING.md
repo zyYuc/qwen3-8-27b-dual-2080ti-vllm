@@ -29,5 +29,4 @@ python -m pip install -e .
 
 ## FlashInfer
 
-本次运行环境使用 flashinfer-python==0.6.16。SM75 对 FlashInfer/vLLM 版本较敏感，升级 FlashInfer、vLLM、CUDA、驱动或模型后，都要重新测试短文本、长上下文、工具调用和显存上限。
-
+本次运行环境使用 flashinfer-python==0.6.16.post3。SM75 对 FlashInfer/vLLM 版本较敏感，升级 FlashInfer、vLLM、CUDA、驱动或模型后，都要重新测试短文本、长上下文、工具调用和显存上限。
