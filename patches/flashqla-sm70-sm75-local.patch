@@ -1,0 +1,77 @@
+diff --git a/flash_qla/__init__.py b/flash_qla/__init__.py
+index 640f684..d777f16 100644
+--- a/flash_qla/__init__.py
++++ b/flash_qla/__init__.py
+@@ -3,11 +3,18 @@
+ 
+ __version__ = "0.1.0"
+ 
+-from flash_qla.ops.gated_delta_rule.chunk import (
+-    chunk_gated_delta_rule_fwd,
+-    chunk_gated_delta_rule_bwd,
+-    chunk_gated_delta_rule,
+-)
++try:
++    from flash_qla.ops.gated_delta_rule.chunk import (
++        chunk_gated_delta_rule_fwd,
++        chunk_gated_delta_rule_bwd,
++        chunk_gated_delta_rule,
++    )
++except ValueError as exc:
++    if "sm90" not in str(exc).lower():
++        raise
++    chunk_gated_delta_rule_fwd = None
++    chunk_gated_delta_rule_bwd = None
++    chunk_gated_delta_rule = None
+ 
+ __all__ = [
+     "chunk_gated_delta_rule_fwd",
+diff --git a/flash_qla/ops/__init__.py b/flash_qla/ops/__init__.py
+index 70df152..e7cb3b0 100644
+--- a/flash_qla/ops/__init__.py
++++ b/flash_qla/ops/__init__.py
+@@ -1,7 +1,12 @@
+ # Copyright (c) 2026 The Qwen team, Alibaba Group.
+ # Licensed under The MIT License [see LICENSE for details]
+ 
+-from .gated_delta_rule import chunk_gated_delta_rule
++try:
++    from .gated_delta_rule import chunk_gated_delta_rule
++except ValueError as exc:
++    if "sm90" not in str(exc).lower():
++        raise
++    chunk_gated_delta_rule = None
+ 
+ 
+ __all__ = ["chunk_gated_delta_rule"]
+diff --git a/flash_qla/ops/gated_delta_rule/__init__.py b/flash_qla/ops/gated_delta_rule/__init__.py
+index ea07eeb..76fc202 100644
+--- a/flash_qla/ops/gated_delta_rule/__init__.py
++++ b/flash_qla/ops/gated_delta_rule/__init__.py
+@@ -1,7 +1,12 @@
+ # Copyright (c) 2026 The Qwen team, Alibaba Group.
+ # Licensed under The MIT License [see LICENSE for details]
+ 
+-from .chunk import chunk_gated_delta_rule
++try:
++    from .chunk import chunk_gated_delta_rule
++except ValueError as exc:
++    if "sm90" not in str(exc).lower():
++        raise
++    chunk_gated_delta_rule = None
+ 
+ 
+ __all__ = ["chunk_gated_delta_rule"]
+diff --git a/flash_qla/ops/gated_delta_rule/legacy/sm_legacy.py b/flash_qla/ops/gated_delta_rule/legacy/sm_legacy.py
+index c0bbe45..f771e13 100644
+--- a/flash_qla/ops/gated_delta_rule/legacy/sm_legacy.py
++++ b/flash_qla/ops/gated_delta_rule/legacy/sm_legacy.py
+@@ -20,7 +20,7 @@ def _load_ext():
+     if not torch.cuda.is_available():
+         raise RuntimeError("SM70/SM75 legacy GDN backend requires CUDA")
+ 
+-    os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "7.0;7.5")
++    os.environ.setdefault("TORCH_CUDA_ARCH_LIST", "7.5")
+     src = Path(__file__).with_name("csrc") / "gdn_forward.cu"
+     _EXT = load(
+         name="flash_qla_legacy_gdn",

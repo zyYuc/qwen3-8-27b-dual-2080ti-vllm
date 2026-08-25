@@ -1,0 +1,21 @@
+[Unit]
+Description=Qwen3.8-27B FP8 vLLM on dual RTX 2080 Ti NVLink
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_LINUX_USER
+Group=YOUR_LINUX_USER
+WorkingDirectory=/opt/qwen3-8-27b-dual-2080ti-vllm
+EnvironmentFile=/etc/qwen3.8-vllm.env
+ExecStart=/opt/qwen3-8-27b-dual-2080ti-vllm/scripts/run_qwen3.8_27b_sm75.sh
+Restart=always
+RestartSec=10
+TimeoutStartSec=900
+StandardOutput=append:/var/log/qwen3.8-vllm.log
+StandardError=append:/var/log/qwen3.8-vllm.log
+
+[Install]
+WantedBy=multi-user.target
+

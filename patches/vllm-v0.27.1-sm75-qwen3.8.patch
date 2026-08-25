@@ -1,0 +1,397 @@
+diff --git a/vllm/config/reasoning.py b/vllm/config/reasoning.py
+index ff5546e..2c2b929 100644
+--- a/vllm/config/reasoning.py
++++ b/vllm/config/reasoning.py
+@@ -26,6 +26,10 @@ class ReasoningConfig:
+     reasoning_end_str: str = ""
+     """String that indicates the end of reasoning content."""
+ 
++    default_thinking_token_budget: int | None = None
++    """Server-side default for thinking_token_budget. Overridden by per-request
++    thinking_token_budget in SamplingParams. Set to None to disable."""
++
+     _reasoning_start_token_ids: list[int] | None = field(
+         default=None, init=False, repr=False
+     )
+diff --git a/vllm/envs.py b/vllm/envs.py
+index 4587139..eb369a4 100755
+--- a/vllm/envs.py
++++ b/vllm/envs.py
+@@ -47,6 +47,8 @@ if TYPE_CHECKING:
+     VLLM_LOG_STATS_INTERVAL: float = 10.0
+     VLLM_TRACE_FUNCTION: int = 0
+     VLLM_USE_FLASHINFER_SAMPLER: bool = True
++    VLLM_QWOPUS_MTP_BF16_DRAFT: bool = False
++    VLLM_SM75_SPEC_SYNC_MODE: str = "auto"
+     VLLM_PP_LAYER_PARTITION: str | None = None
+     VLLM_CPU_KVCACHE_SPACE: int | None = 0
+     VLLM_CPU_OMP_THREADS_BIND: str = "auto"
+@@ -850,6 +852,18 @@ environment_variables: dict[str, Callable[[], Any]] = {
+         if "VLLM_USE_FLASHINFER_SAMPLER" in os.environ
+         else True
+     ),
++    # Local Qwopus/Qwen3.5 MTP draft compatibility switch.
++    "VLLM_QWOPUS_MTP_BF16_DRAFT": lambda: bool(
++        int(os.getenv("VLLM_QWOPUS_MTP_BF16_DRAFT", "0"))
++    ),
++    # 2080Ti/SM75 local policy for speculative decode stream syncs.
++    # auto: keep syncs for TurboQuant KV safety; safe: always sync; nosync: skip.
++    "VLLM_SM75_SPEC_SYNC_MODE": lambda: (
++        env_with_choices(
++            "VLLM_SM75_SPEC_SYNC_MODE", "auto", ["auto", "safe", "nosync"], False
++        )()
++        or "auto"
++    ).lower(),
+     # Pipeline stage partition strategy
+     "VLLM_PP_LAYER_PARTITION": lambda: os.getenv("VLLM_PP_LAYER_PARTITION", None),
+     # (CPU backend only) CPU key-value cache space.
+diff --git a/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py b/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py
+index 567c063..673872a 100644
+--- a/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py
++++ b/vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py
+@@ -84,7 +84,7 @@ logger = init_logger(__name__)
+ 
+ def _resolve_gdn_prefill_backend(
+     vllm_config: VllmConfig,
+-) -> tuple[str, Literal["triton", "flashinfer", "cutedsl"]]:
++) -> tuple[str, Literal["triton", "flashinfer", "cutedsl", "flashqla_legacy"]]:
+     """Resolve GDN prefill backend.
+ 
+     FlashInfer's GDN prefill kernel is chosen when:
+@@ -126,6 +126,8 @@ def _resolve_gdn_prefill_backend(
+         supports_flashinfer = True
+         supports_cutedsl = True
+ 
++    if backend == "flashqla_legacy":
++        return backend, "flashqla_legacy"
+     if backend in ["flashinfer", "auto"] and supports_flashinfer:
+         return backend, "flashinfer"
+     if backend == "cutedsl" and supports_cutedsl:
+@@ -146,6 +148,7 @@ def _log_gdn_backend_decision(
+         "flashinfer": "FlashInfer",
+         "cutedsl": "CuteDSL",
+         "triton": "Triton/FLA",
++        "flashqla_legacy": "FlashQLA legacy (SM70/SM75)",
+     }[active_backend]
+     logger.info_once(
+         "Using %s GDN prefill kernel (requested=%s, head_k_dim=%s).",
+@@ -160,6 +163,96 @@ def _log_gdn_backend_decision(
+         )
+ 
+ 
++
++def flashqla_legacy_chunk_gated_delta_rule(
++    q: torch.Tensor,
++    k: torch.Tensor,
++    v: torch.Tensor,
++    g: torch.Tensor,
++    beta: torch.Tensor,
++    initial_state: torch.Tensor,
++    output_final_state: bool,
++    cu_seqlens: torch.Tensor | None = None,
++    use_qk_l2norm_in_kernel: bool = True,
++):
++    """FlashQLA legacy GDN prefill for SM70/SM75 (2080 Ti)."""
++    from flash_qla.ops.gated_delta_rule.legacy import (
++        chunk_gated_delta_rule_fwd_legacy,
++    )
++
++    if use_qk_l2norm_in_kernel:
++        q = l2norm_fwd(q)
++        k = l2norm_fwd(k)
++
++    scale = q.shape[-1] ** -0.5
++
++    def run_one(start: int | None = None, end: int | None = None, state_idx: int = 0):
++        seq = slice(start, end) if start is not None else slice(None)
++        output, final_state = chunk_gated_delta_rule_fwd_legacy(
++            q[:, seq].to(torch.float32).contiguous(),
++            k[:, seq].to(torch.float32).contiguous(),
++            v[:, seq].to(torch.float32).contiguous(),
++            g[:, seq].to(torch.float32).contiguous(),
++            beta[:, seq].to(torch.float32).contiguous(),
++            scale,
++            initial_state[state_idx : state_idx + 1].to(torch.float32).contiguous(),
++        )
++        return output.to(v.dtype), final_state
++
++    if cu_seqlens is None:
++        output, final_state = run_one()
++        if output_final_state:
++            return output, final_state
++        return output, None
++
++    cu = cu_seqlens.detach().cpu().tolist()
++    if len(cu) == 2 and cu[0] == 0 and cu[1] == q.shape[1]:
++        output, final_state = run_one()
++        if output_final_state:
++            return output, final_state
++        return output, None
++
++    if q.shape[0] != 1:
++        raise NotImplementedError(
++            "FlashQLA legacy ragged GDN prefill expects packed q/k/v "
++            "with batch dimension 1"
++        )
++    if cu[0] != 0 or cu[-1] != q.shape[1]:
++        raise ValueError("cu_seqlens must cover the packed GDN prefill tokens")
++
++    num_sequences = len(cu) - 1
++    if initial_state.shape[0] not in (1, num_sequences):
++        raise ValueError(
++            "initial_state first dimension must be 1 or match "
++            "the number of packed GDN prefill sequences"
++        )
++
++    outputs = []
++    final_states = []
++    for seq_idx, (start, end) in enumerate(zip(cu[:-1], cu[1:])):
++        if end <= start:
++            continue
++        state_idx = seq_idx if initial_state.shape[0] == num_sequences else 0
++        seq_output, seq_final_state = run_one(start, end, state_idx)
++        outputs.append(seq_output)
++        final_states.append(seq_final_state)
++
++    if not outputs:
++        output = torch.empty(
++            (q.shape[0], 0, v.shape[2], v.shape[3]),
++            device=v.device,
++            dtype=v.dtype,
++        )
++        final_state = initial_state[:0] if output_final_state else None
++    else:
++        output = torch.cat(outputs, dim=1)
++        final_state = torch.cat(final_states, dim=0)
++
++    if output_final_state:
++        return output, final_state
++    return output, None
++
++
+ def fi_chunk_gated_delta_rule(
+     q: torch.Tensor,
+     k: torch.Tensor,
+@@ -229,6 +322,8 @@ class ChunkGatedDeltaRule(CustomOp):
+             self._forward_method = self.forward_cuda
+         elif active_backend == "cutedsl":
+             self._forward_method = self.forward_cutedsl
++        elif active_backend == "flashqla_legacy":
++            self._forward_method = self.forward_flashqla_legacy
+         else:
+             self._forward_method = self.forward_native
+ 
+@@ -338,6 +433,38 @@ class ChunkGatedDeltaRule(CustomOp):
+         return o, final_state
+ 
+ 
++    def forward_flashqla_legacy(
++        self,
++        q: torch.Tensor,
++        k: torch.Tensor,
++        v: torch.Tensor,
++        g: torch.Tensor,
++        beta: torch.Tensor,
++        initial_state: torch.Tensor,
++        output_final_state: bool,
++        cu_seqlens: torch.Tensor | None = None,
++        chunk_indices: torch.Tensor | None = None,
++        chunk_offsets: torch.Tensor | None = None,
++        use_qk_l2norm_in_kernel: bool = True,
++        core_attn_out: torch.Tensor | None = None,
++    ):
++        o, final_state = flashqla_legacy_chunk_gated_delta_rule(
++            q=q,
++            k=k,
++            v=v,
++            g=g,
++            beta=beta,
++            initial_state=initial_state,
++            output_final_state=output_final_state,
++            cu_seqlens=cu_seqlens,
++            use_qk_l2norm_in_kernel=use_qk_l2norm_in_kernel,
++        )
++        if core_attn_out is not None:
++            o_flat = o.squeeze(0).reshape(-1)
++            co_flat = core_attn_out.reshape(-1)
++            co_flat[: o_flat.numel()].copy_(o_flat)
++        return o, final_state
++
+ @PluggableLayer.register("qwen_gated_delta_net_attention")
+ class QwenGatedDeltaNetAttention(GatedDeltaNetAttention):
+     def get_state_shape(
+diff --git a/vllm/model_executor/models/qwen3_5_mtp.py b/vllm/model_executor/models/qwen3_5_mtp.py
+index 6421c8b..0558c63 100644
+--- a/vllm/model_executor/models/qwen3_5_mtp.py
++++ b/vllm/model_executor/models/qwen3_5_mtp.py
+@@ -1,3 +1,4 @@
++import os
+ # SPDX-License-Identifier: Apache-2.0
+ # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+ """Inference-only Qwen3_5 MTP model."""
+@@ -78,6 +79,8 @@ class Qwen3_5MultiTokenPredictor(nn.Module):
+ 
+         self.mtp_start_layer_idx = config.num_hidden_layers
+         self.num_mtp_layers = getattr(config, "mtp_num_hidden_layers", 1)
++        qwopus_bf16_mtp = os.environ.get("VLLM_QWOPUS_MTP_BF16_DRAFT") == "1"
++        quant_name = quant_config.get_name() if quant_config else None
+ 
+         self.embed_tokens = VocabParallelEmbedding(
+             self.vocab_size,
+@@ -88,11 +91,24 @@ class Qwen3_5MultiTokenPredictor(nn.Module):
+         # missing from hf_quant_config.json exclude_modules. Force unquantized.
+         # Ref: https://github.com/vllm-project/vllm/pull/38650
+         # Ref: https://github.com/NVIDIA/Model-Optimizer/pull/1124
++        # Keep the FP8 draft layer quantized. The BF16 fc workaround is meant
++        # for checkpoints whose MTP fc is intentionally stored outside the
++        # target quantization scheme (for example FP4/NVFP4 variants).
+         fc_quant = (
+             None
+-            if (quant_config and quant_config.get_name() == "modelopt_fp4")
++            if (
++                quant_name == "modelopt_fp4"
++                or (qwopus_bf16_mtp and quant_name != "fp8")
++            )
+             else quant_config
+         )
++        if qwopus_bf16_mtp:
++            logger.info(
++                "VLLM_QWOPUS_MTP_BF16_DRAFT=1: loading Qwen3.5 MTP "
++                "draft fc without the target quantization config when needed; "
++                "draft layer quantization=%s",
++                quant_name or "disabled",
++            )
+         self.fc = ColumnParallelLinear(
+             self.config.hidden_size * 2,
+             self.config.hidden_size,
+diff --git a/vllm/v1/attention/backends/flashinfer.py b/vllm/v1/attention/backends/flashinfer.py
+index 5251e25..9ef0d89 100755
+--- a/vllm/v1/attention/backends/flashinfer.py
++++ b/vllm/v1/attention/backends/flashinfer.py
+@@ -460,12 +460,11 @@ class FlashInferBackend(AttentionBackend):
+ 
+     @classmethod
+     def supports_compute_capability(cls, capability: DeviceCapability) -> bool:
+-        # FlashInfer supports SM75+, but is currently broken on SM75 (Turing):
+-        # https://github.com/flashinfer-ai/flashinfer/issues/3620 (fix:
+-        # https://github.com/flashinfer-ai/flashinfer/pull/3621). Temporarily
+-        # raise the floor to SM80 so it is not auto-selected on SM75 until
+-        # that fix lands; revert to DeviceCapability(7, 5) once it does.
+-        return capability >= DeviceCapability(8, 0) and capability <= DeviceCapability(
++        # Local Qwopus/2080 Ti override: FlashInfer 0.6.12 is pinned for the
++        # 0.24.0 upgrade and the SM75 path is required to match the 0.23.x
++        # performance baseline. Upstream temporarily raised this floor to SM80
++        # while waiting for the SM75 fix; keep SM75 enabled for this deployment.
++        return capability >= DeviceCapability(7, 5) and capability <= DeviceCapability(
+             12, 1
+         )
+ 
+diff --git a/vllm/v1/attention/backends/gdn_attn.py b/vllm/v1/attention/backends/gdn_attn.py
+index 0b32dfc..62d1d84 100644
+--- a/vllm/v1/attention/backends/gdn_attn.py
++++ b/vllm/v1/attention/backends/gdn_attn.py
+@@ -100,7 +100,7 @@ class GDNAttentionMetadataBuilder(AttentionMetadataBuilder[GDNAttentionMetadata]
+             _resolve_gdn_prefill_backend,
+         )
+ 
+-        self.gdn_prefill_backend: Literal["triton", "flashinfer", "cutedsl"]
++        self.gdn_prefill_backend: Literal["triton", "flashinfer", "cutedsl", "flashqla_legacy"]
+         _, self.gdn_prefill_backend = _resolve_gdn_prefill_backend(vllm_config)
+ 
+         if self.speculative_config:
+diff --git a/vllm/v1/engine/input_processor.py b/vllm/v1/engine/input_processor.py
+index 1fe460b..dffb6b1 100644
+--- a/vllm/v1/engine/input_processor.py
++++ b/vllm/v1/engine/input_processor.py
+@@ -124,6 +124,20 @@ class InputProcessor:
+                         "model runner. Run vLLM with VLLM_USE_V2_MODEL_RUNNER=0 "
+                         "to use thinking_token_budget."
+                     )
++            elif (
++                self.vllm_config.reasoning_config is not None
++                and self.vllm_config.reasoning_config.enabled
++                and not self.use_v2_model_runner
++                and getattr(
++                    self.vllm_config.reasoning_config,
++                    "default_thinking_token_budget",
++                    None,
++                )
++                is not None
++            ):
++                params.thinking_token_budget = (
++                    self.vllm_config.reasoning_config.default_thinking_token_budget
++                )
+         elif isinstance(params, PoolingParams):
+             supported_pooling_tasks = [
+                 task for task in supported_tasks if task in POOLING_TASKS
+diff --git a/vllm/v1/sample/ops/topk_topp_sampler.py b/vllm/v1/sample/ops/topk_topp_sampler.py
+index c83ac7c..e3501ca 100644
+--- a/vllm/v1/sample/ops/topk_topp_sampler.py
++++ b/vllm/v1/sample/ops/topk_topp_sampler.py
+@@ -54,9 +54,21 @@ def flashinfer_sampler_supported() -> bool:
+     assert capability is not None
+     unsupported_reason: str | None = None
+     if not FlashInferBackend.supports_compute_capability(capability):
+-        unsupported_reason = (
+-            f"unsupported compute capability {capability.as_version_str()}"
+-        )
++        # Allow local SM75/2080 Ti deployments that have validated
++        # FlashInfer top-p/top-k sampling with the pinned FlashInfer runtime.
++        # The generic FlashInfer attention backend gate is stricter than this
++        # sampler path needs on Qwopus/Qwen3.5 FP8.
++        if capability.major == 7 and capability.minor >= 5:
++            logger.info_once(
++                "Using FlashInfer top-p/top-k sampling on local SM75 override "
++                "(compute capability %s).",
++                capability.as_version_str(),
++                scope="global",
++            )
++        else:
++            unsupported_reason = (
++                f"unsupported compute capability {capability.as_version_str()}"
++            )
+ 
+     if unsupported_reason is None:
+         logger.info_once("Using FlashInfer for top-p & top-k sampling.", scope="global")
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+index 859cec2..7ee269b 100644
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -484,6 +484,11 @@ class GPUModelRunner(
+         self.kv_cache_dtype = kv_cache_dtype_str_to_dtype(
+             cache_config.cache_dtype, self.model_config
+         )
++        sync_mode = envs.VLLM_SM75_SPEC_SYNC_MODE
++        cache_dtype = str(cache_config.cache_dtype).lower()
++        self.sm75_spec_syncs_enabled = sync_mode == "safe" or (
++            sync_mode == "auto" and cache_dtype.startswith("turboquant_")
++        )
+ 
+         self.is_pooling_model = model_config.runner_type == "pooling"
+         self.enable_prompt_embeds = model_config.enable_prompt_embeds
+@@ -2158,6 +2163,13 @@ class GPUModelRunner(
+             and self.valid_sampled_token_count_gpu is not None
+             and prev_req_id_to_index
+         ):
++            if (
++                self.sm75_spec_syncs_enabled
++                and self.valid_sampled_token_count_copy_stream is not None
++            ):
++                torch.cuda.current_stream().wait_stream(
++                    self.valid_sampled_token_count_copy_stream
++                )
+             self.prev_positions.copy_to_gpu(num_reqs)
+             self.prev_num_draft_tokens.copy_to_gpu()
+             cpu_values = self.input_batch.num_computed_tokens_cpu_tensor[:num_reqs].to(
+@@ -2194,6 +2206,11 @@ class GPUModelRunner(
+         )
+         self.seq_lens[num_reqs:].fill_(0)
+ 
++        if self.sm75_spec_syncs_enabled:
++            # SM75 speculative decode can otherwise race compute_slot_mapping
++            # against non-blocking GPU copies and trip later attention kernels.
++            torch.cuda.current_stream().synchronize()
++
+         self.input_batch.block_table.compute_slot_mapping(
+             num_reqs,
+             self.query_start_loc.gpu[: num_reqs + 1],
