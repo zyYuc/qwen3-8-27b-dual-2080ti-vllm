@@ -104,13 +104,15 @@ python benchmarks/collect_streaming_benchmark.py \
   --output my-benchmark-result.json
 ~~~
 
-测试方法、真实流式原始结果和验收范围都在 benchmarks/README.md。下面仅列出 A0 最终配置的真实流式首字基线；旧 A/B 数据不再作为速度验收依据。
+测试方法、真实流式原始结果和验收范围都在 benchmarks/README.md。下面是 2026-08-25 在当前线上服务重新跑出的上下文梯度结果；旧的 20K 合成压测表已移除，不再作为首页代表速度。
 
 | 实际输入 | 平均首字时间（TTFT） | 平均 Prefill 速度 | 平均 Decode 速度 |
 | :-- | --: | --: | --: |
-| 5.94K tokens | 3.94 s | 1,509.2 tok/s | 81.4 tok/s |
-| 11.87K tokens | 8.16 s | 1,455.2 tok/s | 80.5 tok/s |
-| 29.57K tokens | 22.56 s | 1,310.8 tok/s | 75.1 tok/s |
+| 2.84K tokens | 2.59 s | 1,099.8 tok/s | 97.3 tok/s |
+| 5.64K tokens | 4.48 s | 1,260.2 tok/s | 94.3 tok/s |
+| 8.45K tokens | 6.45 s | 1,311.2 tok/s | 101.1 tok/s |
+
+首字的定义：流式 SSE 收到第一个非空 reasoning_content、reasoning 或 content 字符；Qwen 开始输出 think 内的第一个字符即计入首字。DSH 全任务平均首字应使用 DSH 的原始任务集单独复测，不能与本合成上下文梯度混用。
 
 复现时应先锁定 docs/environment-lock.md，再按 benchmarks/README.md 的方法测试。相同硬件的合理验收范围是约 ±10%；显著偏离时按顺序检查：NVLink 是否为 NV2、TP 是否为 2、补丁是否生效、FlashQLA legacy 是否被日志选中、是否使用 FP8 KV、是否有其他 GPU 占用。
 

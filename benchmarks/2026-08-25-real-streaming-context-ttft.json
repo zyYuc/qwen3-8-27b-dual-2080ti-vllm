@@ -1,0 +1,101 @@
+[
+  {
+    "status": 200,
+    "prompt_tokens": 2849,
+    "completion_tokens": 128,
+    "ttft_s": 2.614,
+    "total_s": 3.815,
+    "prefill_tok_s": 1090.0,
+    "decode_tok_s": 106.5,
+    "target_words": 2700,
+    "run": 1
+  },
+  {
+    "status": 200,
+    "prompt_tokens": 2840,
+    "completion_tokens": 128,
+    "ttft_s": 2.572,
+    "total_s": 3.997,
+    "prefill_tok_s": 1104.2,
+    "decode_tok_s": 89.8,
+    "target_words": 2700,
+    "run": 2
+  },
+  {
+    "status": 200,
+    "prompt_tokens": 2844,
+    "completion_tokens": 128,
+    "ttft_s": 2.573,
+    "total_s": 3.911,
+    "prefill_tok_s": 1105.2,
+    "decode_tok_s": 95.7,
+    "target_words": 2700,
+    "run": 3
+  },
+  {
+    "status": 200,
+    "prompt_tokens": 5646,
+    "completion_tokens": 128,
+    "ttft_s": 4.473,
+    "total_s": 5.869,
+    "prefill_tok_s": 1262.2,
+    "decode_tok_s": 91.7,
+    "target_words": 5400,
+    "run": 1
+  },
+  {
+    "status": 200,
+    "prompt_tokens": 5647,
+    "completion_tokens": 128,
+    "ttft_s": 4.476,
+    "total_s": 5.963,
+    "prefill_tok_s": 1261.5,
+    "decode_tok_s": 86.1,
+    "target_words": 5400,
+    "run": 2
+  },
+  {
+    "status": 200,
+    "prompt_tokens": 5639,
+    "completion_tokens": 128,
+    "ttft_s": 4.487,
+    "total_s": 5.704,
+    "prefill_tok_s": 1256.8,
+    "decode_tok_s": 105.2,
+    "target_words": 5400,
+    "run": 3
+  },
+  {
+    "status": 200,
+    "prompt_tokens": 8479,
+    "completion_tokens": 128,
+    "ttft_s": 6.453,
+    "total_s": 7.719,
+    "prefill_tok_s": 1314.0,
+    "decode_tok_s": 101.1,
+    "target_words": 8100,
+    "run": 1
+  },
+  {
+    "status": 200,
+    "prompt_tokens": 8429,
+    "completion_tokens": 128,
+    "ttft_s": 6.434,
+    "total_s": 7.746,
+    "prefill_tok_s": 1310.0,
+    "decode_tok_s": 97.6,
+    "target_words": 8100,
+    "run": 2
+  },
+  {
+    "status": 200,
+    "prompt_tokens": 8446,
+    "completion_tokens": 128,
+    "ttft_s": 6.449,
+    "total_s": 7.674,
+    "prefill_tok_s": 1309.6,
+    "decode_tok_s": 104.6,
+    "target_words": 8100,
+    "run": 3
+  }
+]
