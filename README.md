@@ -98,9 +98,12 @@ bash scripts/run_qwen3.8_27b_sm75.sh
 这一步是“AI 能否真的帮你跑到相近速度”的关键，而不是只看到服务能启动。这里的首字时间严格按模型流式输出的第一个思考字符或答案字符计算；Qwen 开始输出 think 中第一个字符，就视为首字。
 
 ~~~bash
-python benchmarks/collect_streaming_benchmark.py \
+python benchmarks/run_context_ttft.py \
   --base-url http://127.0.0.1:8000 \
   --model qwen-local \
+  --word-counts 2700 5400 8100 19000 57000 \
+  --runs 3 \
+  --max-tokens 128 \
   --output my-benchmark-result.json
 ~~~
 
